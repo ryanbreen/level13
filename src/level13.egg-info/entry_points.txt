@@ -1,2 +1,0 @@
-[console_scripts]
-level13 = level13.cli:cli

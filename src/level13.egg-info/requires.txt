@@ -1,4 +1,0 @@
-spotipy>=2.24
-click>=8.1
-textual>=0.70
-rich>=13.0

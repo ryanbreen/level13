@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: level13
-Version: 0.1.0
-Summary: Personal Spotify Wrapped — always-available listening analytics
-Requires-Python: >=3.11
-Requires-Dist: spotipy>=2.24
-Requires-Dist: click>=8.1
-Requires-Dist: textual>=0.70
-Requires-Dist: rich>=13.0
