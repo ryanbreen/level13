@@ -1,0 +1,21 @@
+{
+  "name": "level13",
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Personal Spotify Wrapped — tracking the Taylor Swift obsession since 2022",
+  "scripts": {
+    "build": "esbuild js/cli.jsx --bundle --platform=node --format=esm --outfile=dist/cli.js --external:better-sqlite3 --external:spotify-web-api-node --external:yoga-wasm-web --alias:react-devtools-core=./js/stub-devtools.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --log-level=silent",
+    "tui": "npm run build && node dist/cli.js tui"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "chalk": "^4.1.2",
+    "commander": "^12.1.0",
+    "ink": "^4.4.1",
+    "react": "^18.3.1",
+    "spotify-web-api-node": "^5.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

@@ -1,24 +1,22 @@
 #!/bin/sh
-# level13 — start the TUI.
-# ./start.sh          TUI only
-# ./start.sh --poller TUI + background poller (requires Spotify credentials)
-
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN="$DIR/.venv/bin/level13"
 
-if [ ! -x "$BIN" ]; then
-  echo "Setting up Python environment..."
-  python3 -m venv "$DIR/.venv"
-  "$DIR/.venv/bin/pip" install -q -e "$DIR"
+if [ ! -d "$DIR/node_modules" ]; then
+  echo "Installing Node.js dependencies..."
+  cd "$DIR" && npm install --silent
 fi
 
-if [ "$1" = "--poller" ]; then
-  if [ -z "$SPOTIPY_CLIENT_ID" ] || [ -z "$SPOTIPY_CLIENT_SECRET" ]; then
-    echo "Warning: SPOTIPY_CLIENT_ID/SPOTIPY_CLIENT_SECRET not set — skipping poller."
-  else
-    "$BIN" poll start
-  fi
-fi
+cd "$DIR"
+# Fast esbuild bundle (< 100ms)
+npx esbuild js/cli.jsx \
+  --bundle --platform=node --format=esm \
+  --outfile=dist/cli.js \
+  --external:better-sqlite3 \
+  --external:spotify-web-api-node \
+  --external:yoga-wasm-web \
+  --alias:react-devtools-core=./js/stub-devtools.js \
+  "--banner:js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);" \
+  --log-level=silent
 
-exec "$BIN" tui
+exec node dist/cli.js tui
