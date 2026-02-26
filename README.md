@@ -18,28 +18,41 @@ cd level13
 npm install
 ```
 
-Create a Spotify app, set the redirect URI to `http://localhost:8888/callback`, then export your credentials:
+Create a Spotify app, set the redirect URI to `http://localhost:8888/callback`.
+
+## First-time setup
 
 ```sh
-export SPOTIPY_CLIENT_ID=your_client_id
-export SPOTIPY_CLIENT_SECRET=your_client_secret
+# 1. Authenticate with Spotify (opens browser, saves tokens locally)
+node dist/cli.js auth   # prompts for Client ID + Secret on first run
+
+# 2. Install as a background service (auto-starts at login, restarts on crash)
+node dist/cli.js service install
+
+# 3. Launch the TUI
+./start.sh
 ```
+
+That's it. The poller runs silently in the background from here on.
 
 ## Usage
 
 ```sh
-./start.sh            # launch TUI (builds in ~100ms via esbuild)
-node dist/cli.js tui  # same, after a manual build
-node dist/cli.js stats # print summary to terminal
+./start.sh                    # launch TUI (builds in ~100ms via esbuild)
+node dist/cli.js tui          # same, after a manual build
+node dist/cli.js stats        # print summary to terminal
+node dist/cli.js poll status  # check poller health + last sync time
 ```
 
 ### Import your full history
 
-Download your Extended Streaming History from Spotify (Account → Privacy → Request data), then:
+The poller only captures plays while your laptop is open. To fill gaps (phone, car, other devices) download your Extended Streaming History from Spotify (Account → Privacy → Request data), then:
 
 ```sh
 node dist/cli.js import ~/Downloads/my_spotify_data.zip
 ```
+
+Re-importing is safe — duplicates are silently ignored. Import as often as you like.
 
 ## TUI
 
