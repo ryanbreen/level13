@@ -7,9 +7,9 @@ const RANGE_LABELS = { '7d': '7 days', '30d': '30 days', '90d': '90 days', '365d
 
 export default function TracksTab({ width, height }) {
   const [rangeIdx, setRangeIdx] = useState(1);
-  const [tracks, setTracks]     = useState([]);
+  const [tracks, setTracks]     = useState(null);
 
-  const load = (idx) => setTracks(topTracks(RANGES[idx], 100));
+  const load = async (idx) => { setTracks(await topTracks(RANGES[idx], 100)); };
 
   useEffect(() => { load(rangeIdx); }, []);
 
@@ -18,6 +18,8 @@ export default function TracksTab({ width, height }) {
     if (input === ']') { const i = Math.min(RANGES.length-1, rangeIdx + 1); setRangeIdx(i); load(i); }
     if (input === 'r') load(rangeIdx);
   });
+
+  if (!tracks) return <Box><Text dimColor>  Loading…</Text></Box>;
 
   const prev = rangeIdx > 0 ? RANGE_LABELS[RANGES[rangeIdx-1]] : '';
   const next = rangeIdx < RANGES.length-1 ? RANGE_LABELS[RANGES[rangeIdx+1]] : '';

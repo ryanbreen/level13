@@ -1,4 +1,4 @@
-import { getDb } from './db.js';
+import { d1Query } from './d1.js';
 import { DEFAULT_MS_PER_PLAY } from './config.js';
 
 const MS_EXPR = `COALESCE(ms_played, ${DEFAULT_MS_PER_PLAY})`;
@@ -18,55 +18,58 @@ function timeRangeFilter(timeRange) {
   return { where: 'played_at >= ?', params: [cutoff] };
 }
 
-export function dailyListeningTime(dateStr) {
-  const db = getDb();
-  const row = db.prepare(`SELECT SUM(${MS_EXPR}) AS total FROM plays WHERE date(played_at) = ?`).get(dateStr);
-  return row?.total ?? 0;
+export async function dailyListeningTime(dateStr) {
+  const rows = await d1Query(
+    `SELECT SUM(${MS_EXPR}) AS total FROM plays WHERE date(played_at) = ?`,
+    [dateStr],
+  );
+  return rows[0]?.total ?? 0;
 }
 
-export function topArtists(timeRange = '30d', limit = 20) {
-  const db = getDb();
+export async function topArtists(timeRange = '30d', limit = 20) {
   const { where, params } = timeRangeFilter(timeRange);
-  return db.prepare(`
+  const rows = await d1Query(`
     SELECT artist_name, COUNT(*) AS play_count, SUM(${MS_EXPR}) AS total_ms,
            SUM(CASE WHEN ms_played IS NULL THEN 1 ELSE 0 END) > 0 AS has_estimates
     FROM plays WHERE ${where} AND artist_name IS NOT NULL
     GROUP BY artist_name ORDER BY total_ms DESC LIMIT ?
-  `).all(...params, limit).map(r => ({
+  `, [...params, limit]);
+  return rows.map(r => ({
     artistName: r.artist_name, playCount: r.play_count,
     totalMs: r.total_ms, estimated: !!r.has_estimates,
   }));
 }
 
-export function topTracks(timeRange = '30d', limit = 20) {
-  const db = getDb();
+export async function topTracks(timeRange = '30d', limit = 20) {
   const { where, params } = timeRangeFilter(timeRange);
-  return db.prepare(`
+  const rows = await d1Query(`
     SELECT track_name, artist_name, COUNT(*) AS play_count, SUM(${MS_EXPR}) AS total_ms,
            SUM(CASE WHEN ms_played IS NULL THEN 1 ELSE 0 END) > 0 AS has_estimates
     FROM plays WHERE ${where} AND track_name IS NOT NULL
     GROUP BY track_name, artist_name ORDER BY total_ms DESC LIMIT ?
-  `).all(...params, limit).map(r => ({
+  `, [...params, limit]);
+  return rows.map(r => ({
     trackName: r.track_name, artistName: r.artist_name,
     playCount: r.play_count, totalMs: r.total_ms, estimated: !!r.has_estimates,
   }));
 }
 
-export function yearlyAggregate(year) {
-  const db = getDb();
-  const row = db.prepare(`
+export async function yearlyAggregate(year) {
+  const rows = await d1Query(`
     SELECT COUNT(*) AS total_plays, SUM(${MS_EXPR}) AS total_ms,
            COUNT(DISTINCT artist_name) AS unique_artists,
            COUNT(DISTINCT track_name) AS unique_tracks
     FROM plays WHERE date(played_at) BETWEEN ? AND ?
-  `).get(`${year}-01-01`, `${year}-12-31`);
-  return { year, totalPlays: row.total_plays ?? 0, totalMs: row.total_ms ?? 0,
-           uniqueArtists: row.unique_artists ?? 0, uniqueTracks: row.unique_tracks ?? 0 };
+  `, [`${year}-01-01`, `${year}-12-31`]);
+  const row = rows[0];
+  return { year, totalPlays: row?.total_plays ?? 0, totalMs: row?.total_ms ?? 0,
+           uniqueArtists: row?.unique_artists ?? 0, uniqueTracks: row?.unique_tracks ?? 0 };
 }
 
-export function streak() {
-  const db = getDb();
-  const rows = db.prepare("SELECT DISTINCT date(played_at) AS day FROM plays ORDER BY day").all();
+export async function streak() {
+  const rows = await d1Query(
+    'SELECT DISTINCT date(played_at) AS day FROM plays ORDER BY day',
+  );
   if (!rows.length) return { currentStreak: 0, longestStreak: 0 };
 
   const days = rows.map(r => new Date(r.day));
@@ -90,58 +93,59 @@ export function streak() {
   return { currentStreak: current, longestStreak: Math.max(longest, current) };
 }
 
-export function listeningByDay(start, end) {
-  const db = getDb();
-  return db.prepare(`
+export async function listeningByDay(start, end) {
+  return d1Query(`
     SELECT date(played_at) AS day, SUM(${MS_EXPR}) AS total_ms, COUNT(*) AS play_count
     FROM plays WHERE date(played_at) BETWEEN ? AND ?
     GROUP BY day ORDER BY day
-  `).all(start, end);
+  `, [start, end]);
 }
 
-export function playsForDay(dateStr) {
-  const db = getDb();
-  return db.prepare(`
+export async function playsForDay(dateStr) {
+  return d1Query(`
     SELECT played_at, track_name, artist_name, album_name, ms_played
     FROM plays WHERE date(played_at) = ? ORDER BY played_at
-  `).all(dateStr);
+  `, [dateStr]);
 }
 
-export function summaryStats() {
+export async function summaryStats() {
   const today = new Date().toISOString().slice(0, 10);
   const year = new Date().getFullYear();
-  return {
-    todayMs: dailyListeningTime(today),
-    topArtists30d: topArtists('30d', 10),
-    topTracks30d: topTracks('30d', 10),
-    yearly: yearlyAggregate(year),
-    streaks: streak(),
-  };
+  const [todayMs, topArtists30d, topTracks30d, yearly, streaks] = await Promise.all([
+    dailyListeningTime(today),
+    topArtists('30d', 10),
+    topTracks('30d', 10),
+    yearlyAggregate(year),
+    streak(),
+  ]);
+  return { todayMs, topArtists30d, topTracks30d, yearly, streaks };
 }
 
-export function artistDailyHistory(limit = 10) {
-  const db = getDb();
-  const bounds = db.prepare("SELECT MIN(date(played_at)) AS first, MAX(date(played_at)) AS last FROM plays").get();
-  if (!bounds.first) return { days: [], artists: [] };
+export async function artistDailyHistory(limit = 10) {
+  const boundsRows = await d1Query(
+    'SELECT MIN(date(played_at)) AS first, MAX(date(played_at)) AS last FROM plays',
+  );
+  const bounds = boundsRows[0];
+  if (!bounds?.first) return { days: [], artists: [] };
 
   const { first, last } = bounds;
 
-  const top = db.prepare(`
+  const top = await d1Query(`
     SELECT artist_name, SUM(${MS_EXPR}) AS total_ms
     FROM plays WHERE artist_name IS NOT NULL
     GROUP BY artist_name ORDER BY total_ms DESC LIMIT ?
-  `).all(limit);
+  `, [limit]);
   if (!top.length) return { days: [], artists: [] };
 
   const topNames = top.map(r => r.artist_name);
   const topTotals = Object.fromEntries(top.map(r => [r.artist_name, r.total_ms]));
 
   const ph = topNames.map(() => '?').join(',');
-  const rows = db.prepare(`
+  const rows = await d1Query(`
     SELECT artist_name, date(played_at) AS day, SUM(${MS_EXPR}) AS ms
     FROM plays WHERE artist_name IN (${ph})
     GROUP BY artist_name, day ORDER BY day
-  `).all(...topNames);
+  `, topNames);
 
   // Build full day list
   const days = [];

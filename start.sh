@@ -15,6 +15,7 @@ npx esbuild js/cli.jsx \
   --external:better-sqlite3 \
   --external:spotify-web-api-node \
   --external:yoga-wasm-web \
+  --external:readline \
   --alias:react-devtools-core=./js/stub-devtools.js \
   "--banner:js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);" \
   --log-level=silent

@@ -1,0 +1,12 @@
+name = "level13-poller"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+account_id = "1c4242a5ff4262714297ce7b929c0bf8"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "level13"
+database_id = "417d6377-d8b5-4e2f-a1ca-455c2292216d"
+
+[triggers]
+crons = ["*/3 * * * *"]

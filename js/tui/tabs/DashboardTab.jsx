@@ -1,16 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { summaryStats, msToHuman } from '../../stats.js';
-import fs from 'fs';
-import { PID_FILE } from '../../config.js';
-
-function pidRunning() {
-  try {
-    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim());
-    process.kill(pid, 0);
-    return true;
-  } catch { return false; }
-}
 
 function Table({ rows, columns }) {
   const widths = columns.map((col, ci) =>
@@ -33,11 +23,9 @@ function Table({ rows, columns }) {
 
 export default function DashboardTab({ width, height }) {
   const [stats, setStats] = useState(null);
-  const [running, setRunning] = useState(false);
 
-  const load = () => {
-    setStats(summaryStats());
-    setRunning(pidRunning());
+  const load = async () => {
+    setStats(await summaryStats());
   };
 
   useEffect(() => { load(); }, []);
@@ -49,7 +37,7 @@ export default function DashboardTab({ width, height }) {
 
   return (
     <Box flexDirection="column" paddingLeft={1}>
-      <Text>{running ? '● Poller running' : '○ Poller stopped'}</Text>
+      <Text>● Worker active</Text>
       <Text> </Text>
       <Text><Text bold>Today: </Text><Text color="cyan">{msToHuman(todayMs)}</Text></Text>
       <Text><Text bold>Streak: </Text>{streaks.currentStreak} days  <Text dimColor>longest: {streaks.longestStreak} days</Text></Text>

@@ -8,13 +8,14 @@ function fmtDate(d) {
 
 export default function DailyTab({ width, height }) {
   const [day,   setDay]   = useState(new Date());
-  const [plays, setPlays] = useState([]);
-  const [total, setTotal] = useState(0);
+  const [plays, setPlays] = useState(null);
+  const [total, setTotal] = useState(null);
 
-  const load = (d) => {
+  const load = async (d) => {
     const ds = d.toISOString().slice(0, 10);
-    setPlays(playsForDay(ds));
-    setTotal(dailyListeningTime(ds));
+    const [p, t] = await Promise.all([playsForDay(ds), dailyListeningTime(ds)]);
+    setPlays(p);
+    setTotal(t);
   };
 
   useEffect(() => { load(day); }, []);
@@ -34,6 +35,8 @@ export default function DailyTab({ width, height }) {
     if (input === 't') { const d = new Date(); setDay(d); load(d); }
   });
 
+  if (!plays) return <Box><Text dimColor>  Loading…</Text></Box>;
+
   const timeW  = 6;
   const trackW = Math.max(20, Math.min(40, width - 50));
   const artistW = Math.max(15, Math.min(25, width - trackW - 20));
@@ -43,7 +46,7 @@ export default function DailyTab({ width, height }) {
       <Text>
         <Text bold>{fmtDate(day)}</Text>
         {'  '}
-        <Text color="cyan">{msToHuman(total)}</Text>
+        <Text color="cyan">{msToHuman(total ?? 0)}</Text>
         <Text dimColor>  ← → days · t=today</Text>
       </Text>
       <Text> </Text>

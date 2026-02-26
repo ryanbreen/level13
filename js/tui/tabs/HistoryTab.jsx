@@ -9,9 +9,9 @@ export default function HistoryTab({ width, height }) {
   const [offset,    setOffset]    = useState(0);
   const [nArtists,  setNArtists]  = useState(10);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setData(null);
-    const d = artistDailyHistory(nArtists);
+    const d = await artistDailyHistory(nArtists);
     setData(d);
     setOffset(defaultOffset(d, zoom));
   }, [nArtists]);  // zoom excluded intentionally; offset reset handled in effect
@@ -24,7 +24,7 @@ export default function HistoryTab({ width, height }) {
   }, [zoom]);
 
   useInput((input, key) => {
-    if (input === '+') setZoom(z => Math.min(4, z + 1));
+    if (input === '+' || input === '=') setZoom(z => Math.min(4, z + 1));
     if (input === '-') setZoom(z => Math.max(0, z - 1));
     if (input === '0') { setZoom(0); setOffset(0); }
     if (input === 'r') load();
