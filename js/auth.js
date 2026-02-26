@@ -55,7 +55,7 @@ export function createSpotifyClient() {
   const spotify = new SpotifyWebApi({
     clientId,
     clientSecret,
-    redirectUri: 'http://localhost:8888/callback',
+    redirectUri: 'http://127.0.0.1:8888/callback',
   });
   if (tokens) {
     spotify.setAccessToken(tokens.accessToken);
@@ -105,7 +105,7 @@ export async function runAuthFlow() {
   const spotify = new SpotifyWebApi({
     clientId,
     clientSecret,
-    redirectUri: 'http://localhost:8888/callback',
+    redirectUri: 'http://127.0.0.1:8888/callback',
   });
 
   const authUrl = spotify.createAuthorizeURL(SPOTIFY_SCOPES, 'level13-state');
@@ -118,7 +118,7 @@ export async function runAuthFlow() {
 
   const code = await new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      const url = new URL(req.url, 'http://localhost:8888');
+      const url = new URL(req.url, 'http://127.0.0.1:8888');
       if (url.pathname !== '/callback') return;
       const code = url.searchParams.get('code');
       const error = url.searchParams.get('error');

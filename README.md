@@ -18,7 +18,7 @@ cd level13
 npm install
 ```
 
-Create a Spotify app, set the redirect URI to `http://localhost:8888/callback`.
+Create a Spotify app, set the redirect URI to `http://127.0.0.1:8888/callback`.
 
 ## First-time setup
 
