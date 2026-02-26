@@ -2,6 +2,8 @@
 
 Personal Spotify Wrapped, available whenever you want it. Built primarily to document a Taylor Swift obsession.
 
+![history tab showing braille area charts per artist](docs/chart.png)
+
 ## What it does
 
 Polls your Spotify "Recently Played" every 3 minutes and stores everything in a local SQLite database. Pair that with a one-time import of your Spotify GDPR export and you get complete listening history with a terminal dashboard to browse it.
