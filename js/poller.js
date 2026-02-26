@@ -1,6 +1,8 @@
 // Standalone polling daemon — run directly: node js/poller.js
 // NOT bundled by esbuild; imports directly from js/ source.
 
+process.title = 'level13-poller';
+
 import fs from 'fs';
 import { DATA_DIR, PID_FILE, LOG_FILE, POLL_INTERVAL_MS } from './config.js';
 import { createSpotifyClient, refreshIfNeeded } from './auth.js';
