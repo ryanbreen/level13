@@ -55,7 +55,7 @@ export function createSpotifyClient() {
   const spotify = new SpotifyWebApi({
     clientId,
     clientSecret,
-    redirectUri: 'http://127.0.0.1:8888/callback',
+    redirectUri: 'http://127.0.0.1:8765/callback',
   });
   if (tokens) {
     spotify.setAccessToken(tokens.accessToken);
@@ -105,7 +105,7 @@ export async function runAuthFlow() {
   const spotify = new SpotifyWebApi({
     clientId,
     clientSecret,
-    redirectUri: 'http://127.0.0.1:8888/callback',
+    redirectUri: 'http://127.0.0.1:8765/callback',
   });
 
   const authUrl = spotify.createAuthorizeURL(SPOTIFY_SCOPES, 'level13-state');
@@ -118,7 +118,7 @@ export async function runAuthFlow() {
 
   const code = await new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      const url = new URL(req.url, 'http://127.0.0.1:8888');
+      const url = new URL(req.url, 'http://127.0.0.1:8765');
       if (url.pathname !== '/callback') return;
       const code = url.searchParams.get('code');
       const error = url.searchParams.get('error');
@@ -133,7 +133,7 @@ export async function runAuthFlow() {
         reject(new Error(`Spotify auth error: ${error}`));
       }
     });
-    server.listen(8888, () => console.log('Waiting for Spotify callback on :8888...'));
+    server.listen(8765, () => console.log('Waiting for Spotify callback on :8765...'));
     server.on('error', reject);
     setTimeout(() => { server.close(); reject(new Error('Auth timed out after 2 minutes')); }, 120_000);
   });
