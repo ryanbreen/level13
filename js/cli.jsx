@@ -238,4 +238,12 @@ program
     await runImport(importPath);
   });
 
+program
+  .command('import-apple <path>')
+  .description('Import Apple Music play history (ZIP or CSV from privacy.apple.com)')
+  .action(async (importPath) => {
+    const { runAppleImport } = await import('./appleImporter.js');
+    await runAppleImport(importPath);
+  });
+
 program.parse();
