@@ -92,15 +92,23 @@ export function drawChart(data, { width, height, zoom, offset, nArtists, zoomLab
     { text: `  ${zoomLabel}  [+/-] zoom  [←→] pan  [[/]] artists (${nArtists})`, dim: true },
   ]);
 
+  // Absolute peak: max daily ms across all artists across all time.
+  // Computed from raw data before any sampling so it never changes as you pan or zoom.
+  let absolutePeak = 1;
+  for (const artist of artists) {
+    for (const v of artist.dailyMs) {
+      if (v > absolutePeak) absolutePeak = v;
+    }
+  }
+
   // Artist rows
   for (let ai = 0; ai < artists.length; ai++) {
     const artist = artists[ai];
     const color  = COLORS[ai % COLORS.length];
     const endIdx = Math.min(off + span, nDays);
     const visible = artist.dailyMs.slice(off, endIdx);
-
     const sampled = gaussianSpread(sampleMax(visible, brCols));
-    const peak    = Math.max(...sampled, 1);
+    const peak    = absolutePeak;
 
     // Build braille grid [rowsPer][chartW]
     const grid = Array.from({ length: rowsPer }, () => new Uint8Array(chartW));
@@ -116,11 +124,15 @@ export function drawChart(data, { width, height, zoom, offset, nArtists, zoomLab
       }
     }
 
-    // Import msToHuman inline
-    const totalSec = Math.floor(artist.totalMs / 1000);
-    const hrs = Math.floor(totalSec / 3600);
-    const mins = Math.floor((totalSec % 3600) / 60);
-    const hrsStr = hrs ? `${hrs}h ${mins}m` : `${mins}m`;
+    // Time helpers
+    const fmtMs = ms => {
+      const s = Math.floor(ms / 1000);
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+      return h ? `${h}h ${m}m` : `${m}m`;
+    };
+    const totalStr   = fmtMs(artist.totalMs);
+    const visibleMs  = visible.reduce((a, v) => a + v, 0);
+    const visibleStr = fmtMs(visibleMs);
 
     for (let r = 0; r < rowsPer; r++) {
       const line = [];
@@ -129,8 +141,16 @@ export function drawChart(data, { width, height, zoom, offset, nArtists, zoomLab
       if (r === 0) {
         const name = ` ${artist.name.slice(0, LABEL_W - 2)}`;
         line.push({ text: name.padEnd(LABEL_W), color, bold: true });
-      } else if (r === 1 && rowsPer > 1) {
-        const label = `  ${hrsStr}`.padStart(LABEL_W);
+      } else if (r === 1 && rowsPer >= 3) {
+        // Enough rows: show visible time on this line, total on next
+        const label = `  ${visibleStr} in view`.padStart(LABEL_W);
+        line.push({ text: label, color, dim: true });
+      } else if (r === 1 && rowsPer === 2) {
+        // Tight: show both on one line — visible · total
+        const label = `  ${visibleStr} · ${totalStr}`.padStart(LABEL_W);
+        line.push({ text: label, color, dim: true });
+      } else if (r === 2) {
+        const label = `  ${totalStr} total`.padStart(LABEL_W);
         line.push({ text: label, color, dim: true });
       } else {
         line.push({ text: ' '.repeat(LABEL_W) });
