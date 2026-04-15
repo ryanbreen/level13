@@ -193,7 +193,9 @@ function collectCsvFiles(dir) {
         entry.name.endsWith('.csv') &&
         /apple.music/i.test(entry.name) &&
         /play|activity|history|listen/i.test(entry.name) &&
-        !/click/i.test(entry.name)
+        !/click/i.test(entry.name) &&
+        !/container/i.test(entry.name) &&
+        !/statistics/i.test(entry.name)
       ) results.push(full);
     }
   }
@@ -284,6 +286,9 @@ export async function runAppleImport(inputPath) {
         artistName = a.trim();
         trackName  = rest.join(' - ').trim();
       }
+
+      // Drop rows with no track AND no artist — they carry zero information.
+      if (!trackName && !artistName) { skipped++; continue; }
 
       // Fall back to Apple Music Library Tracks lookup
       if (!artistName && trackName) {

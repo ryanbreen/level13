@@ -246,4 +246,14 @@ program
     await runAppleImport(importPath);
   });
 
+program
+  .command('backfill-apple-artists')
+  .description('Resolve missing Apple Music artists via iTunes Search API')
+  .option('--limit <n>', 'Only process the top N most-played unresolved tracks', parseInt)
+  .option('--dry-run', 'Look up artists but do not write to D1')
+  .action(async (opts) => {
+    const { runArtistBackfill } = await import('./appleArtistBackfill.js');
+    await runArtistBackfill({ limit: opts.limit, dryRun: !!opts.dryRun });
+  });
+
 program.parse();
