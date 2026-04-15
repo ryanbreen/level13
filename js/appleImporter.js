@@ -5,7 +5,7 @@ import { execSync } from 'child_process';
 import { d1Exec } from './d1.js';
 
 const MIN_MS = 30_000;
-const BATCH  = 40; // 40 rows × 7 params = 280, under D1 REST ~342-variable limit
+const BATCH  = 14; // 14 rows × 7 params = 98, under D1's 100-variable statement limit
 
 // ---------------------------------------------------------------------------
 // CSV parser (handles quoted fields with embedded commas/newlines)
@@ -40,15 +40,20 @@ function parseCsv(text) {
 // Column name resolver — Apple's export format has changed over the years
 // ---------------------------------------------------------------------------
 const COLUMN_CANDIDATES = {
-  track:    ['Track Description', 'Song Name', 'Title', 'Track Name', 'Content Name'],
-  artist:   ['Artist Name', 'Artist', 'Performer'],
-  album:    ['Album Name', 'Album', 'Container Description', 'Collection Name'],
-  date:     ['Play Date', 'Date Played', 'Last Played Date', 'Event Start Timestamp',
-             'Event End Timestamp', 'Activity Date Time'],
-  ms:       ['Play Duration Milliseconds', 'Play Duration Ms', 'Duration Milliseconds',
-             'Played completely', 'Media Duration In Milliseconds'],
-  mediaMs:  ['Media Duration In Milliseconds', 'Track Duration Ms', 'Duration'],
-  ignored:  ['Ignore For Recommendations', 'Skip Count'],
+  track:     ['Track Description', 'Song Name', 'Title', 'Track Name', 'Content Name'],
+  artist:    ['Artist Name', 'Artist', 'Performer', 'Container Artist Name'],
+  album:     ['Album Name', 'Album', 'Container Description', 'Collection Name'],
+  date:      ['Play Date', 'Date Played', 'Last Played Date', 'Event Start Timestamp',
+              'Event End Timestamp', 'Activity Date Time', 'Last Event End Timestamp',
+              'First Event Timestamp', 'Last Event Start Timestamp'],
+  ms:        ['Play Duration Milliseconds', 'Play Duration Ms', 'Duration Milliseconds',
+              'Played completely', 'Max Play Duration in millis',
+              'Total play duration in millis'],
+  mediaMs:   ['Media Duration In Milliseconds', 'Track Duration Ms', 'Duration',
+              'Media duration in millis'],
+  hours:     ['Hours'],
+  playCount: ['Play Count', 'Total plays'],
+  eventType: ['Event Type'],
 };
 
 function resolveColumns(headers) {
@@ -61,12 +66,15 @@ function resolveColumns(headers) {
     return -1;
   };
   return {
-    track:   find(COLUMN_CANDIDATES.track),
-    artist:  find(COLUMN_CANDIDATES.artist),
-    album:   find(COLUMN_CANDIDATES.album),
-    date:    find(COLUMN_CANDIDATES.date),
-    ms:      find(COLUMN_CANDIDATES.ms),
-    mediaMs: find(COLUMN_CANDIDATES.mediaMs),
+    track:     find(COLUMN_CANDIDATES.track),
+    artist:    find(COLUMN_CANDIDATES.artist),
+    album:     find(COLUMN_CANDIDATES.album),
+    date:      find(COLUMN_CANDIDATES.date),
+    ms:        find(COLUMN_CANDIDATES.ms),
+    mediaMs:   find(COLUMN_CANDIDATES.mediaMs),
+    hours:     find(COLUMN_CANDIDATES.hours),
+    playCount: find(COLUMN_CANDIDATES.playCount),
+    eventType: find(COLUMN_CANDIDATES.eventType),
   };
 }
 
@@ -78,9 +86,25 @@ function parseAppleDate(raw) {
   const s = raw.trim();
 
   // ISO-ish: "2022-01-15T10:30:45Z" or "2022-01-15 10:30:45"
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-    const d = new Date(s.replace(' ', 'T').replace(/([+-]\d{2}:\d{2})?$/, v => v || 'Z'));
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s) || /^\d{4}-\d{2}-\d{2} \d/.test(s)) {
+    const d = new Date(s.replace(' ', 'T').replace(/([+-]\d{2}:\d{2}|Z)?$/, v => v || 'Z'));
     if (!isNaN(d)) return d.toISOString();
+  }
+
+  // Date only: "2022-01-15" → use noon UTC as synthetic time
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return `${s}T12:00:00.000Z`;
+  }
+
+  // Compact date: "20180615" → noon UTC (Hours column overrides later)
+  if (/^\d{8}$/.test(s)) {
+    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T12:00:00.000Z`;
+  }
+
+  // Unix timestamp (ms or s)
+  if (/^\d{10,13}$/.test(s)) {
+    const ms = s.length === 13 ? parseInt(s) : parseInt(s) * 1000;
+    return new Date(ms).toISOString();
   }
 
   // Apple locale format: "Jan 15, 2022 at 10:30 AM"
@@ -90,18 +114,62 @@ function parseAppleDate(raw) {
     if (!isNaN(d)) return d.toISOString();
   }
 
-  // Date only: "2022-01-15" → use noon UTC as synthetic time
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    return `${s}T12:00:00.000Z`;
-  }
-
-  // Unix timestamp (ms)
-  if (/^\d{10,13}$/.test(s)) {
-    const ms = s.length === 13 ? parseInt(s) : parseInt(s) * 1000;
-    return new Date(ms).toISOString();
-  }
-
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Library Tracks lookup (resolves missing artists in Play Activity)
+// ---------------------------------------------------------------------------
+function buildArtistLookup(workDir) {
+  const lookup = new Map();
+  let libTracksPath = null;
+
+  function walk(d) {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/Apple Music Library Tracks\.json(\.zip)?$/.test(entry.name)) {
+        libTracksPath = full;
+      }
+    }
+  }
+  walk(workDir);
+
+  if (!libTracksPath) return lookup;
+
+  let jsonPath = libTracksPath;
+  if (libTracksPath.endsWith('.zip')) {
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), 'level13-lib-'));
+    execSync(`unzip -q "${libTracksPath}" -d "${extractDir}"`);
+    const files = fs.readdirSync(extractDir).filter(f => f.endsWith('.json'));
+    if (files.length === 0) return lookup;
+    jsonPath = path.join(extractDir, files[0]);
+  }
+
+  const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  if (!Array.isArray(data)) return lookup;
+
+  for (const t of data) {
+    const title  = t.Title || t['Song Name'];
+    const artist = t.Artist || t['Album Artist'];
+    const album  = t.Album;
+    if (!title || !artist) continue;
+    // Keyed by title+album (more specific), plus title-only as fallback
+    if (album) lookup.set(`${title.toLowerCase()}|${album.toLowerCase()}`, artist);
+    if (!lookup.has(title.toLowerCase())) lookup.set(title.toLowerCase(), artist);
+  }
+
+  console.log(`Loaded ${lookup.size} entries from Apple Music Library Tracks for artist lookup.`);
+  return lookup;
+}
+
+function resolveArtist(lookup, title, album) {
+  if (!title) return null;
+  if (album) {
+    const hit = lookup.get(`${title.toLowerCase()}|${album.toLowerCase()}`);
+    if (hit) return hit;
+  }
+  return lookup.get(title.toLowerCase()) || null;
 }
 
 // Synthetic track_uri for dedup (no Spotify URIs in Apple data)
@@ -124,7 +192,8 @@ function collectCsvFiles(dir) {
       else if (
         entry.name.endsWith('.csv') &&
         /apple.music/i.test(entry.name) &&
-        /play|activity|history|listen/i.test(entry.name)
+        /play|activity|history|listen/i.test(entry.name) &&
+        !/click/i.test(entry.name)
       ) results.push(full);
     }
   }
@@ -162,7 +231,9 @@ export async function runAppleImport(inputPath) {
   for (const f of csvFiles) console.log(`  ${path.basename(f)}`);
   console.log();
 
-  let totalRows = 0, inserted = 0, skipped = 0;
+  const artistLookup = buildArtistLookup(workDir);
+
+  let totalRows = 0, inserted = 0, skipped = 0, artistResolved = 0;
 
   for (const file of csvFiles) {
     const text = fs.readFileSync(file, 'utf8');
@@ -193,13 +264,19 @@ export async function runAppleImport(inputPath) {
       const r = rows[i];
       totalRows++;
 
-      const trackRaw  = cols.track  >= 0 ? r[cols.track]?.trim()  : null;
-      const artistRaw = cols.artist >= 0 ? r[cols.artist]?.trim() : null;
-      const albumRaw  = cols.album  >= 0 ? r[cols.album]?.trim()  : null;
-      const dateRaw   = cols.date   >= 0 ? r[cols.date]?.trim()   : null;
-      const msRaw     = cols.ms     >= 0 ? r[cols.ms]?.trim()     : null;
+      const trackRaw     = cols.track     >= 0 ? r[cols.track]?.trim()     : null;
+      const artistRaw    = cols.artist    >= 0 ? r[cols.artist]?.trim()    : null;
+      const albumRaw     = cols.album     >= 0 ? r[cols.album]?.trim()     : null;
+      const dateRaw      = cols.date      >= 0 ? r[cols.date]?.trim()      : null;
+      const msRaw        = cols.ms        >= 0 ? r[cols.ms]?.trim()        : null;
+      const hoursRaw     = cols.hours     >= 0 ? r[cols.hours]?.trim()     : null;
+      const playCountRaw = cols.playCount >= 0 ? r[cols.playCount]?.trim() : null;
+      const eventType    = cols.eventType >= 0 ? r[cols.eventType]?.trim() : null;
 
-      // "Track Description" sometimes encodes as "Artist - Track Title"
+      // Skip PLAY_START events (we count completed/partial plays via PLAY_END)
+      if (eventType === 'PLAY_START') { skipped++; continue; }
+
+      // "Track Description" / "Track Name" sometimes encodes as "Artist - Track Title"
       let trackName  = trackRaw  || null;
       let artistName = artistRaw || null;
       if (!artistName && trackRaw?.includes(' - ')) {
@@ -208,21 +285,50 @@ export async function runAppleImport(inputPath) {
         trackName  = rest.join(' - ').trim();
       }
 
-      const played_at = parseAppleDate(dateRaw);
+      // Fall back to Apple Music Library Tracks lookup
+      if (!artistName && trackName) {
+        const hit = resolveArtist(artistLookup, trackName, albumRaw);
+        if (hit) { artistName = hit; artistResolved++; }
+      }
+
+      let played_at = parseAppleDate(dateRaw);
       if (!played_at) { skipped++; continue; }
 
-      const ms_played = msRaw ? parseInt(msRaw) : null;
-      if (ms_played !== null && ms_played < MIN_MS) { skipped++; continue; }
+      // If an Hours column is present, overlay hour onto synthetic-noon date
+      if (hoursRaw && /^\d{1,2}$/.test(hoursRaw)) {
+        const hour = parseInt(hoursRaw);
+        if (hour >= 0 && hour <= 23) {
+          const d = new Date(played_at);
+          d.setUTCHours(hour, 0, 0, 0);
+          played_at = d.toISOString();
+        }
+      }
 
-      records.push({
-        played_at,
-        track_uri:   syntheticUri(artistName, trackName),
-        track_name:  trackName,
-        artist_name: artistName,
-        album_name:  albumRaw  || null,
-        ms_played:   ms_played || null,
-        source:      'apple_music',
-      });
+      const ms_played_total = msRaw && /^\d+$/.test(msRaw) ? parseInt(msRaw) : null;
+
+      // Play Count expansion: rows with Play Count > 1 are aggregates. Expand
+      // into N individual plays with second-level offsets so dedup key stays unique.
+      const playCount = playCountRaw && /^\d+$/.test(playCountRaw)
+        ? Math.max(1, parseInt(playCountRaw)) : 1;
+      const perPlayMs = ms_played_total !== null
+        ? Math.floor(ms_played_total / playCount) : null;
+
+      // Filter very short plays (likely skips). Only filter per-play duration.
+      if (perPlayMs !== null && perPlayMs < MIN_MS) { skipped++; continue; }
+
+      const baseDate = new Date(played_at);
+      for (let k = 0; k < playCount; k++) {
+        const d = new Date(baseDate.getTime() + k * 1000);
+        records.push({
+          played_at:   d.toISOString(),
+          track_uri:   syntheticUri(artistName, trackName),
+          track_name:  trackName,
+          artist_name: artistName,
+          album_name:  albumRaw || null,
+          ms_played:   perPlayMs,
+          source:      'apple_music',
+        });
+      }
     }
 
     // Batch insert into D1
@@ -247,7 +353,8 @@ export async function runAppleImport(inputPath) {
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true });
 
   console.log(`\nApple Music import complete.`);
-  console.log(`  Total rows:  ${totalRows.toLocaleString()}`);
-  console.log(`  Inserted:    ${inserted.toLocaleString()}`);
-  console.log(`  Skipped:     ${skipped.toLocaleString()} (no date, <30s, or duplicates)`);
+  console.log(`  Total rows:          ${totalRows.toLocaleString()}`);
+  console.log(`  Inserted:            ${inserted.toLocaleString()}`);
+  console.log(`  Skipped:             ${skipped.toLocaleString()} (no date, <30s, PLAY_START, or duplicates)`);
+  console.log(`  Artists resolved via library: ${artistResolved.toLocaleString()}`);
 }
