@@ -58,13 +58,13 @@ Re-importing is safe — duplicates are silently ignored. Import as often as you
 
 | Key | Action |
 |-----|--------|
-| `1–5` | Switch tabs |
+| `1–6` | Switch tabs |
 | `q` / `Ctrl+C` | Quit |
-| **History tab** | |
+| **History / Songs tabs** | |
 | `+` / `-` | Zoom in / out |
 | `0` | Reset to all-time view |
 | `←` / `→` | Pan through time |
-| `[` / `]` | Fewer / more artists |
+| `[` / `]` | Fewer / more rows |
 | **Artists / Tracks tabs** | |
 | `[` / `]` | Shorter / longer time range |
 | **Daily tab** | |
@@ -74,10 +74,11 @@ Re-importing is safe — duplicates are silently ignored. Import as often as you
 ### Tabs
 
 1. **History** — braille dot-matrix area chart, one artist per row, across your full listening history. Zoom from all-time down to 1 month. Each artist's peak day normalises to full height so you can see relative activity patterns even for artists you listen to rarely.
-2. **Dashboard** — today's listening, current streak, year-to-date totals, top artists and tracks this week.
-3. **Artists** — full ranked list by total listening time, with time range filter.
-4. **Tracks** — same for tracks.
-5. **Daily** — navigate day by day and see every play in order.
+2. **Songs** — the same flame chart for your top 10 songs, ranked by play count. Each song is normalised to its own peak so you can see *when* you listened to each one — a recent obsession shows as a tall spike at the right edge, an old favourite as a cluster years back.
+3. **Dashboard** — today's listening, current streak, year-to-date totals, top artists and tracks this week.
+4. **Artists** — full ranked list by total listening time, with time range filter.
+5. **Tracks** — same for tracks.
+6. **Daily** — navigate day by day and see every play in order.
 
 ## Data
 

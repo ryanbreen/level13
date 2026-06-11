@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput, useApp, useStdout } from 'ink';
 import HistoryTab   from './tabs/HistoryTab.jsx';
+import SongsTab     from './tabs/SongsTab.jsx';
 import DashboardTab from './tabs/DashboardTab.jsx';
 import ArtistsTab   from './tabs/ArtistsTab.jsx';
 import TracksTab    from './tabs/TracksTab.jsx';
@@ -8,10 +9,11 @@ import DailyTab     from './tabs/DailyTab.jsx';
 
 const TABS = [
   { id: 'history',   label: '1 History',   Component: HistoryTab   },
-  { id: 'dashboard', label: '2 Dashboard', Component: DashboardTab },
-  { id: 'artists',   label: '3 Artists',   Component: ArtistsTab   },
-  { id: 'tracks',    label: '4 Tracks',    Component: TracksTab    },
-  { id: 'daily',     label: '5 Daily',     Component: DailyTab     },
+  { id: 'songs',     label: '2 Songs',     Component: SongsTab     },
+  { id: 'dashboard', label: '3 Dashboard', Component: DashboardTab },
+  { id: 'artists',   label: '4 Artists',   Component: ArtistsTab   },
+  { id: 'tracks',    label: '5 Tracks',    Component: TracksTab    },
+  { id: 'daily',     label: '6 Daily',     Component: DailyTab     },
 ];
 
 export default function App() {

@@ -1,22 +1,27 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { drawChart, ZOOM_LABEL, ZOOM_DAYS, getSpan, defaultOffset, COLORS } from '../components/brailleChart.js';
-import { artistDailyHistory } from '../../stats.js';
+import { drawChart, ZOOM_LABEL, getSpan, defaultOffset } from '../components/brailleChart.js';
+import { trackDailyHistory } from '../../stats.js';
 
-export default function HistoryTab({ width, height }) {
-  const [data,      setData]      = useState(null);
-  const [zoom,      setZoom]      = useState(1);
-  const [offset,    setOffset]    = useState(0);
-  const [nArtists,  setNArtists]  = useState(10);
+const fmtPlays = v => {
+  const n = Math.round(v);
+  return `${n} play${n === 1 ? '' : 's'}`;
+};
+
+export default function SongsTab({ width, height }) {
+  const [data,    setData]    = useState(null);
+  const [zoom,    setZoom]    = useState(1);
+  const [offset,  setOffset]  = useState(0);
+  const [nTracks, setNTracks] = useState(10);
 
   const load = useCallback(async () => {
     setData(null);
-    const d = await artistDailyHistory(nArtists);
+    const d = await trackDailyHistory(nTracks);
     setData(d);
     setOffset(defaultOffset(d, zoom));
-  }, [nArtists]);  // zoom excluded intentionally; offset reset handled in effect
+  }, [nTracks]);  // zoom excluded intentionally; offset reset handled in effect
 
-  useEffect(() => { load(); }, [nArtists]);
+  useEffect(() => { load(); }, [nTracks]);
 
   // Reset offset when zoom changes
   useEffect(() => {
@@ -28,8 +33,8 @@ export default function HistoryTab({ width, height }) {
     if (input === '-') setZoom(z => Math.max(0, z - 1));
     if (input === '0') { setZoom(0); setOffset(0); }
     if (input === 'r') load();
-    if (input === ']') setNArtists(n => Math.min(15, n + 1));
-    if (input === '[') setNArtists(n => Math.max(3, n - 1));
+    if (input === ']') setNTracks(n => Math.min(15, n + 1));
+    if (input === '[') setNTracks(n => Math.max(3, n - 1));
     if (key.leftArrow && data && zoom !== 0) {
       const s = getSpan(data, zoom);
       setOffset(o => Math.max(0, o - Math.floor(s / 8)));
@@ -42,14 +47,18 @@ export default function HistoryTab({ width, height }) {
   });
 
   if (!data) {
-    return <Box><Text dimColor>  Loading history…</Text></Box>;
+    return <Box><Text dimColor>  Loading songs…</Text></Box>;
   }
 
   const lines = drawChart(data, {
     width, height,
     zoom, offset,
-    nRows: nArtists,
+    nRows: nTracks,
     zoomLabel: ZOOM_LABEL[zoom],
+    title: 'Top Songs',
+    noun: 'songs',
+    fmtValue: fmtPlays,
+    normalize: 'row',
   });
 
   return (

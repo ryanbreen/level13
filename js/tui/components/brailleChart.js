@@ -65,20 +65,42 @@ export function defaultOffset(data, zoom) {
   return Math.max(0, data.days.length - getSpan(data, zoom));
 }
 
+// Default value formatter: milliseconds → "Xh Ym".
+function fmtMs(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+// Clamp a label to exactly LABEL_W chars (truncate if long, pad otherwise).
+function fitLabel(text, align) {
+  const t = text.length > LABEL_W ? text.slice(0, LABEL_W) : text;
+  return align === 'end' ? t.padStart(LABEL_W) : t.padEnd(LABEL_W);
+}
+
 /**
  * Returns array of lines; each line is array of { text, color, bold, dim }.
  * Caller renders these with Ink <Text> spans.
+ *
+ * `data.rows` is an array of { name, subtitle?, total, daily } where `daily`
+ * is a per-day series (listening ms for artists, play counts for songs).
+ * Options let the same chart render either: `title`/`noun` for the header,
+ * `fmtValue` to format totals (time vs. plays), and `nRows` to cap the rows.
  */
-export function drawChart(data, { width, height, zoom, offset, nArtists, zoomLabel }) {
-  const days    = data.days;
-  const artists = data.artists.slice(0, nArtists);
-  const nDays   = days.length;
-  const span    = getSpan(data, zoom);
-  const off     = Math.max(0, Math.min(offset, nDays - span));
+export function drawChart(data, {
+  width, height, zoom, offset, nRows, zoomLabel,
+  title = 'Artist History', noun = 'artists', fmtValue = fmtMs,
+  normalize = 'global',
+}) {
+  const days  = data.days;
+  const rows  = data.rows.slice(0, nRows);
+  const nDays = days.length;
+  const span  = getSpan(data, zoom);
+  const off   = Math.max(0, Math.min(offset, nDays - span));
 
   const chartW   = Math.max(4, width - LABEL_W);
   const brCols   = chartW * 2;
-  const rowsPer  = artists.length > 0 ? Math.max(2, Math.floor((height - 2) / artists.length)) : 2;
+  const rowsPer  = rows.length > 0 ? Math.max(2, Math.floor((height - 2) / rows.length)) : 2;
   const brRows   = rowsPer * 4;
 
   const lines = [];
@@ -87,28 +109,37 @@ export function drawChart(data, { width, height, zoom, offset, nArtists, zoomLab
   const v0 = days[off]?.slice(0, 7) ?? '?';
   const v1 = days[Math.min(off + span - 1, nDays - 1)]?.slice(0, 7) ?? '?';
   lines.push([
-    { text: 'Artist History  ', color: 'white', bold: true },
+    { text: `${title}  `, color: 'white', bold: true },
     { text: `${v0} → ${v1}`, color: 'cyan' },
-    { text: `  ${zoomLabel}  [+/-] zoom  [←→] pan  [[/]] artists (${nArtists})`, dim: true },
+    { text: `  ${zoomLabel}  [+/-] zoom  [←→] pan  [[/]] ${noun} (${nRows})`, dim: true },
   ]);
 
-  // Absolute peak: max daily ms across all artists across all time.
-  // Computed from raw data before any sampling so it never changes as you pan or zoom.
+  // Normalization peak, computed from raw data before any sampling so the
+  // heights never change as you pan or zoom.
+  //   'global' — one peak across all rows (artists, whose daily totals are
+  //              comparable, so relative intensity reads correctly)
+  //   'row'    — each row scaled to its own peak (songs, where one binge would
+  //              otherwise flatten every more-spread-out song to nothing)
   let absolutePeak = 1;
-  for (const artist of artists) {
-    for (const v of artist.dailyMs) {
+  for (const row of rows) {
+    for (const v of row.daily) {
       if (v > absolutePeak) absolutePeak = v;
     }
   }
+  const rowPeak = (row) => {
+    let p = 1;
+    for (const v of row.daily) if (v > p) p = v;
+    return p;
+  };
 
-  // Artist rows
-  for (let ai = 0; ai < artists.length; ai++) {
-    const artist = artists[ai];
+  // Rows
+  for (let ai = 0; ai < rows.length; ai++) {
+    const row    = rows[ai];
     const color  = COLORS[ai % COLORS.length];
     const endIdx = Math.min(off + span, nDays);
-    const visible = artist.dailyMs.slice(off, endIdx);
+    const visible = row.daily.slice(off, endIdx);
     const sampled = gaussianSpread(sampleMax(visible, brCols));
-    const peak    = absolutePeak;
+    const peak    = normalize === 'row' ? rowPeak(row) : absolutePeak;
 
     // Build braille grid [rowsPer][chartW]
     const grid = Array.from({ length: rowsPer }, () => new Uint8Array(chartW));
@@ -124,34 +155,31 @@ export function drawChart(data, { width, height, zoom, offset, nArtists, zoomLab
       }
     }
 
-    // Time helpers
-    const fmtMs = ms => {
-      const s = Math.floor(ms / 1000);
-      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-      return h ? `${h}h ${m}m` : `${m}m`;
-    };
-    const totalStr   = fmtMs(artist.totalMs);
-    const visibleMs  = visible.reduce((a, v) => a + v, 0);
-    const visibleStr = fmtMs(visibleMs);
+    const totalStr   = fmtValue(row.total);
+    const visibleVal = visible.reduce((a, v) => a + v, 0);
+    const visibleStr = fmtValue(visibleVal);
 
     for (let r = 0; r < rowsPer; r++) {
       const line = [];
 
       // Label column (must be exactly LABEL_W chars)
       if (r === 0) {
-        const name = ` ${artist.name.slice(0, LABEL_W - 2)}`;
-        line.push({ text: name.padEnd(LABEL_W), color, bold: true });
+        line.push({ text: fitLabel(` ${row.name}`, 'start'), color, bold: true });
+      } else if (r === 1 && row.subtitle && rowsPer >= 3) {
+        // Songs with room: artist on its own line, total on the next
+        line.push({ text: fitLabel(`  ${row.subtitle}`, 'end'), color, dim: true });
+      } else if (r === 1 && row.subtitle) {
+        // Songs, tight: artist · total plays
+        line.push({ text: fitLabel(`  ${row.subtitle} · ${totalStr}`, 'end'), color, dim: true });
       } else if (r === 1 && rowsPer >= 3) {
-        // Enough rows: show visible time on this line, total on next
-        const label = `  ${visibleStr} in view`.padStart(LABEL_W);
-        line.push({ text: label, color, dim: true });
-      } else if (r === 1 && rowsPer === 2) {
+        // Enough rows: show visible value on this line, total on next
+        line.push({ text: fitLabel(`  ${visibleStr} in view`, 'end'), color, dim: true });
+      } else if (r === 1) {
         // Tight: show both on one line — visible · total
-        const label = `  ${visibleStr} · ${totalStr}`.padStart(LABEL_W);
-        line.push({ text: label, color, dim: true });
+        line.push({ text: fitLabel(`  ${visibleStr} · ${totalStr}`, 'end'), color, dim: true });
       } else if (r === 2) {
-        const label = `  ${totalStr} total`.padStart(LABEL_W);
-        line.push({ text: label, color, dim: true });
+        const label = row.subtitle ? `  ${totalStr}` : `  ${totalStr} total`;
+        line.push({ text: fitLabel(label, 'end'), color, dim: true });
       } else {
         line.push({ text: ' '.repeat(LABEL_W) });
       }
