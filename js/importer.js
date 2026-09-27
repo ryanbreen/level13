@@ -2,9 +2,34 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
-import { d1Exec } from './d1.js';
+import { d1Exec, d1Query } from './d1.js';
 
 const MIN_MS = 30_000; // skip plays shorter than 30 seconds
+// The poller stores played_at with milliseconds, a few seconds after the export's ts for the same play
+// (measured 2026-09-27: 96% within 5 s, all within 10 min), so exact-key dedup cannot see those rows.
+const API_BEFORE_MS = 60_000;
+const API_AFTER_MS = 600_000;
+
+async function loadApiPlays() {
+  const byUri = new Map();
+  for (const r of await d1Query("SELECT played_at, track_uri FROM plays WHERE source = 'api'")) {
+    if (!r.track_uri) continue;
+    const list = byUri.get(r.track_uri) ?? [];
+    list.push(Date.parse(r.played_at));
+    byUri.set(r.track_uri, list);
+  }
+  for (const list of byUri.values()) list.sort((a, b) => a - b);
+  return byUri;
+}
+
+function capturedByPoller(byUri, record) {
+  const list = byUri.get(record.track_uri);
+  if (!list) return false;
+  const ts = Date.parse(record.played_at);
+  let lo = 0, hi = list.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid] < ts - API_BEFORE_MS) lo = mid + 1; else hi = mid; }
+  return lo < list.length && list[lo] <= ts + API_AFTER_MS;
+}
 
 function mapRecord(r) {
   return {
@@ -64,17 +89,25 @@ export async function runImport(inputPath) {
 
   let total = 0;
   let inserted = 0;
+  let polled = 0;
+  const apiPlays = await loadApiPlays();
 
-  const BATCH = 40; // 40 rows × 7 params = 280 params — under D1 REST API ~342-variable limit
+  const BATCH = 14; // 14 rows × 7 params = 98 — D1 rejects more than 100 bound parameters per statement
 
   for (const file of jsonFiles) {
     const records = parseRecords(file);
     total += records.length;
 
-    // Pre-filter before batching
+    // Pre-filter before batching. Records without a track URI are podcast episodes; UNIQUE(played_at, track_uri)
+    // treats NULLs as distinct, so they would be inserted again by every re-import.
     const valid = records
-      .filter(r => (r.ms_played ?? MIN_MS) >= MIN_MS && r.ts)
-      .map(mapRecord);
+      .filter(r => (r.ms_played ?? MIN_MS) >= MIN_MS && r.ts && r.spotify_track_uri)
+      .map(mapRecord)
+      .filter(r => {
+        if (!capturedByPoller(apiPlays, r)) return true;
+        polled += 1;
+        return false;
+      });
 
     for (let i = 0; i < valid.length; i += BATCH) {
       const batch = valid.slice(i, i + BATCH);
@@ -99,5 +132,6 @@ export async function runImport(inputPath) {
   console.log(`\nImport complete.`);
   console.log(`  Total records: ${total.toLocaleString()}`);
   console.log(`  Inserted:      ${inserted.toLocaleString()}`);
-  console.log(`  Skipped:       ${(total - inserted).toLocaleString()} (duplicates + <30s plays)`);
+  console.log(`  Already polled: ${polled.toLocaleString()}`);
+  console.log(`  Skipped:       ${(total - inserted).toLocaleString()} (duplicates, already polled, <30s plays)`);
 }
